@@ -1297,13 +1297,13 @@ func _update_playing(delta: float, fly_speed: float) -> void:
 			spring_vel_y = -0.55 # violent wobble on impact
 			if hit_sfx_player:
 				hit_sfx_player.play()
-			_spawn_burst(spike.position, Color(0.937, 0.267, 0.267))
-			_spawn_popup("-30% FUEL!", Color(1.0, 0.3, 0.3))
+			_spawn_explosion(spike.position)
+			_spawn_popup("BOOM! -30% FUEL!", Color(1.0, 0.3, 0.3))
 			_trigger_hit_flash()
-			camera_shake_intensity = 0.75 # Trigger physical camera shake
+			camera_shake_intensity = 1.0 # Strong camera shake on explosion
 			_reset_spike(spike)
 			if air_pressure <= 0.0:
-				_game_over("A spike popped your fuel tank!")
+				_game_over("A spike mine blew up your balloon!")
 				return
 		elif spike.position.z > 6.0:
 			_reset_spike(spike)
@@ -1445,6 +1445,77 @@ func _spawn_burst(pos: Vector3, col: Color) -> void:
 	p.emitting = true
 	get_tree().create_timer(2.0).timeout.connect(func():
 		if is_instance_valid(p): p.queue_free()
+	)
+
+func _spawn_explosion(pos: Vector3) -> void:
+	# 1. Fiery Fireball Core Burst
+	var fire := CPUParticles3D.new()
+	fire.one_shot              = true
+	fire.explosiveness         = 1.0
+	fire.amount                = 30
+	fire.lifetime              = 0.5
+	fire.position              = pos
+	fire.direction             = Vector3.UP
+	fire.spread                = 180.0
+	fire.initial_velocity_min  = 5.0; fire.initial_velocity_max = 10.0
+	fire.scale_amount_min      = 0.12; fire.scale_amount_max   = 0.30
+	fire.gravity               = Vector3(0, -2.0, 0)
+	
+	var fire_mat := StandardMaterial3D.new()
+	fire_mat.vertex_color_use_as_albedo = true
+	fire_mat.emission_enabled = true
+	fire_mat.emission = Color(1.0, 0.4, 0.05)
+	fire_mat.emission_energy_multiplier = 4.0
+	
+	var fire_mesh := SphereMesh.new()
+	fire_mesh.radius = 0.35; fire_mesh.height = 0.7
+	fire_mesh.material = fire_mat
+	fire.mesh = fire_mesh
+	fire.color = Color(1.0, 0.65, 0.15, 1.0)
+	add_child(fire)
+	fire.emitting = true
+
+	# 2. Rising Dark Smoke Cloud
+	var smoke := CPUParticles3D.new()
+	smoke.one_shot              = true
+	smoke.explosiveness         = 0.95
+	smoke.amount                = 18
+	smoke.lifetime              = 1.1
+	smoke.position              = pos
+	smoke.direction             = Vector3.UP
+	smoke.spread                = 180.0
+	smoke.initial_velocity_min  = 1.5; smoke.initial_velocity_max = 4.5
+	smoke.scale_amount_min      = 0.20; smoke.scale_amount_max   = 0.55
+	smoke.gravity               = Vector3(0, 2.5, 0) # Smoke rises up
+	
+	var smoke_mat := StandardMaterial3D.new()
+	smoke_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	smoke_mat.vertex_color_use_as_albedo = true
+	
+	var smoke_mesh := SphereMesh.new()
+	smoke_mesh.radius = 0.45; smoke_mesh.height = 0.9
+	smoke_mesh.material = smoke_mat
+	smoke.mesh = smoke_mesh
+	smoke.color = Color(0.2, 0.2, 0.22, 0.6)
+	add_child(smoke)
+	smoke.emitting = true
+
+	# 3. Sudden Explosive Light Flash
+	var light := OmniLight3D.new()
+	light.position = pos
+	light.light_color = Color(1.0, 0.55, 0.15)
+	light.light_energy = 9.0
+	light.omni_range = 12.0
+	add_child(light)
+
+	var tw := create_tween()
+	tw.tween_property(light, "light_energy", 0.0, 0.35)
+	tw.chain().tween_callback(light.queue_free)
+
+	# Auto-clean particle nodes
+	get_tree().create_timer(1.5).timeout.connect(func():
+		if is_instance_valid(fire): fire.queue_free()
+		if is_instance_valid(smoke): smoke.queue_free()
 	)
 
 func _spawn_popup(text: String, col: Color) -> void:
