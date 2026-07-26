@@ -26,7 +26,6 @@ var vel_y: float = 0.0
 # Keyboard/touch input state
 var key_left: bool = false
 var key_right: bool = false
-var key_pump: bool = false
 
 # -------------------------------------------------------
 # 3D Scene Objects
@@ -111,6 +110,9 @@ func _setup_environment() -> void:
 	env.ambient_light_energy = 1.4
 	env.tonemap_mode     = Environment.TONE_MAPPER_ACES
 	env.tonemap_exposure = 1.15
+	
+	# Disable glow for a clean, natural look
+	env.glow_enabled = false
 
 	var we := WorldEnvironment.new()
 	we.environment = env
@@ -321,10 +323,8 @@ func _create_pump() -> Node3D:
 	bm.top_radius = 0.25; bm.bottom_radius = 0.25; bm.height = 0.7; bm.radial_segments = 12
 	var bmat := StandardMaterial3D.new()
 	bmat.albedo_color            = Color(0.063, 0.722, 0.506)
-	bmat.metallic                = 0.7; bmat.roughness = 0.2
-	bmat.emission_enabled        = true
-	bmat.emission                = Color(0.024, 0.588, 0.412)
-	bmat.emission_energy_multiplier = 1.2
+	bmat.metallic                = 0.2; bmat.roughness = 0.45
+	bmat.emission_enabled        = false
 	bm.material = bmat
 	var body := MeshInstance3D.new(); body.mesh = bm
 	g.add_child(body)
@@ -354,10 +354,8 @@ func _create_spike() -> Node3D:
 	var sm := SphereMesh.new(); sm.radius = 0.35; sm.height = 0.7
 	var smat := StandardMaterial3D.new()
 	smat.albedo_color            = Color(0.937, 0.267, 0.267)
-	smat.metallic                = 0.8; smat.roughness = 0.2
-	smat.emission_enabled        = true
-	smat.emission                = Color(0.863, 0.149, 0.149)
-	smat.emission_energy_multiplier = 1.0
+	smat.metallic                = 0.1; smat.roughness = 0.8
+	smat.emission_enabled        = false
 	sm.material = smat
 	var core := MeshInstance3D.new(); core.mesh = sm
 	g.add_child(core)
@@ -624,10 +622,13 @@ func _build_hud(canvas: CanvasLayer) -> void:
 	bl.button_up.connect(func(): key_left = false)
 	tc_row.add_child(bl)
 
-	var bp := _touch_btn("▲ PUMP AIR", true)
-	bp.button_down.connect(func(): key_pump = true; if game_mode == Mode.PLAYING: _pump_air())
-	bp.button_up.connect(func(): key_pump = false)
-	tc_row.add_child(bp)
+	var bu := _touch_btn("▲ PUMP", true)
+	bu.pressed.connect(func(): if game_mode == Mode.PLAYING: _pump_up())
+	tc_row.add_child(bu)
+
+	var bd := _touch_btn("▼ VENT", true)
+	bd.pressed.connect(func(): if game_mode == Mode.PLAYING: _vent_down())
+	tc_row.add_child(bd)
 
 	var brr := _touch_btn("▶", false)
 	brr.button_down.connect(func(): key_right = true)
@@ -713,13 +714,13 @@ func _build_main_menu(canvas: CanvasLayer) -> void:
 	vb.add_child(HSeparator.new())
 
 	var rules := Label.new()
-	rules.text = "⏳  Air slowly leaks — your balloon sinks over time\n⛽  Collect glowing green pumps  →  +25% Air!\n⚠️  Avoid red spike hazards  →  -30% Air (instant!)"
+	rules.text = "⏳  Air cools down — balance lift to stay aloft\n⛽  Collect green pumps  →  +25% Air!\n⚠️  Avoid red spikes  →  -30% Air (instant!)"
 	rules.add_theme_font_size_override("font_size", 14)
 	rules.add_theme_color_override("font_color", Color(0.85, 0.92, 1.0))
 	rules.autowrap_mode = TextServer.AUTOWRAP_WORD; vb.add_child(rules)
 
 	var ctrl_lbl := Label.new()
-	ctrl_lbl.text = "A / D  or  ← / →  to steer   •   SPACE  to pump hot air"
+	ctrl_lbl.text = "A/D (steer)   •   W/SPACE (pump up)   •   S/DOWN (vent down)"
 	ctrl_lbl.add_theme_font_size_override("font_size", 13)
 	ctrl_lbl.add_theme_color_override("font_color", Color(0.6, 0.72, 1.0, 0.82))
 	ctrl_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; vb.add_child(ctrl_lbl)
@@ -823,10 +824,12 @@ func _input(event: InputEvent) -> void:
 				key_left = pressed
 			KEY_D, KEY_RIGHT:
 				key_right = pressed
-			KEY_SPACE:
-				key_pump = pressed
-				if pressed and game_mode == Mode.PLAYING:
-					_pump_air()
+			KEY_SPACE, KEY_W, KEY_UP:
+				if pressed and not iek.is_echo():
+					_pump_up()
+			KEY_S, KEY_DOWN:
+				if pressed and not iek.is_echo():
+					_vent_down()
 
 
 # =================================================================
@@ -867,10 +870,17 @@ func _game_over(reason: String) -> void:
 	res_time_label.text     = str(int(survival_time)) + "s"
 	res_pumps_label.text    = str(pumps_collected)
 
-func _pump_air() -> void:
+func _pump_up() -> void:
+	if game_mode != Mode.PLAYING: return
 	air_pressure = minf(100.0, air_pressure + 3.5)
-	vel_y += 0.09
+	vel_y += 0.08
 	_spawn_flame()
+
+func _vent_down() -> void:
+	if game_mode != Mode.PLAYING: return
+	air_pressure = maxf(0.0, air_pressure - 3.5)
+	vel_y -= 0.08
+	_spawn_vent_puff()
 
 
 # =================================================================
@@ -909,15 +919,16 @@ func _update_playing(delta: float, fly_speed: float) -> void:
 	# Survival stats
 	survival_time += delta
 	score         += delta * 18.0
-	drain_rate    += delta * 0.05
-	air_pressure  -= drain_rate * delta
+	
+	# Passive air cooling (increases slightly over time)
+	var cooling_rate := 3.0 + survival_time * 0.012
+	air_pressure -= cooling_rate * delta
+	air_pressure = clampf(air_pressure, 0.0, 100.0)
 
 	if air_pressure <= 0.0:
 		air_pressure = 0.0
 		_game_over("Your air pressure ran out completely!")
 		return
-
-	if key_pump: _spawn_flame()
 
 	# HUD updates
 	score_label.text       = str(int(score))
@@ -937,11 +948,17 @@ func _update_playing(delta: float, fly_speed: float) -> void:
 		else:
 			air_fill_style.bg_color = Color(0.90, 0.20, 0.20)
 
-	# Buoyancy physics (mirrors JS exactly)
+	# Buoyancy physics & steering controls
 	if key_left:  vel_x -= 0.45 * delta
 	if key_right: vel_x += 0.45 * delta
 	vel_x *= 0.90
-	vel_y -= 0.16 * delta   # Gravity pulls balloon down
+	
+	# Calculate passive buoyancy: neutral hover at ~50.6% air pressure
+	var lift_factor := air_pressure / 100.0
+	var buoyancy_acc := (lift_factor * 0.45 - 0.228) * delta
+	vel_y += buoyancy_acc
+	vel_y *= 0.96 # air resistance/damping
+	
 	pos_x += vel_x
 	pos_y += vel_y
 	pos_x = clampf(pos_x, -4.5, 4.5)
@@ -1033,8 +1050,49 @@ func _spawn_flame() -> void:
 	p.spread                = 28.0
 	p.initial_velocity_min  = 1.5; p.initial_velocity_max = 3.0
 	p.scale_amount_min      = 0.06; p.scale_amount_max    = 0.12
-	p.color                 = Color(0.98, 0.62, 0.04, 0.9)
+	
+	# Shaded material to blend with world lighting
+	var mat := StandardMaterial3D.new()
+	mat.vertex_color_use_as_albedo = true
+	
+	var sm := SphereMesh.new()
+	sm.radius = 0.5; sm.height = 1.0
+	sm.material = mat
+	p.mesh = sm
+	
+	# Natural warm fire color
+	p.color = Color(0.98, 0.50, 0.05, 0.8)
 	p.gravity               = Vector3(0, -2, 0)
+	add_child(p)
+	p.emitting = true
+	get_tree().create_timer(0.8).timeout.connect(func():
+		if is_instance_valid(p): p.queue_free()
+	)
+
+func _spawn_vent_puff() -> void:
+	if not balloon_root: return
+	var p := CPUParticles3D.new()
+	p.one_shot              = true
+	p.explosiveness         = 0.9
+	p.amount                = 4
+	p.lifetime              = 0.45
+	p.position              = balloon_root.position + Vector3(0, 1.25, 0)
+	p.direction             = Vector3.UP
+	p.spread                = 18.0
+	p.initial_velocity_min  = 2.0; p.initial_velocity_max = 3.5
+	p.scale_amount_min      = 0.04; p.scale_amount_max    = 0.08
+	
+	var mat := StandardMaterial3D.new()
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.vertex_color_use_as_albedo = true
+	
+	var sm := SphereMesh.new()
+	sm.radius = 0.5; sm.height = 1.0
+	sm.material = mat
+	p.mesh = sm
+	
+	p.color = Color(0.9, 0.9, 0.95, 0.45)
+	p.gravity               = Vector3(0, 1.0, 0)
 	add_child(p)
 	p.emitting = true
 	get_tree().create_timer(0.8).timeout.connect(func():
@@ -1052,7 +1110,18 @@ func _spawn_burst(pos: Vector3, col: Color) -> void:
 	p.spread                = 180.0
 	p.initial_velocity_min  = 2.5; p.initial_velocity_max = 6.0
 	p.scale_amount_min      = 0.10; p.scale_amount_max    = 0.22
-	p.color                 = col
+	
+	# Shaded material to blend with world lighting
+	var mat := StandardMaterial3D.new()
+	mat.vertex_color_use_as_albedo = true
+	
+	var sm := SphereMesh.new()
+	sm.radius = 0.5; sm.height = 1.0
+	sm.material = mat
+	p.mesh = sm
+	
+	# Natural particle colors matching the source object
+	p.color = col
 	p.gravity               = Vector3(0, -4, 0)
 	add_child(p)
 	p.emitting = true
