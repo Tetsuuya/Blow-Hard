@@ -27,11 +27,19 @@ var vel_y: float = 0.0
 var key_left: bool = false
 var key_right: bool = false
 
+# Spring simulation variables for squash and stretch animations
+var spring_scale_y: float = 1.0
+var spring_vel_y: float = 0.0
+const SPRING_K: float = 14.0
+const SPRING_D: float = 3.2
+
 # -------------------------------------------------------
 # 3D Scene Objects
 # -------------------------------------------------------
 var camera: Camera3D = null
 var balloon_root: Node3D = null
+var envelope_node: Node3D = null
+var envelope_original_scale: Vector3 = Vector3.ONE
 var base_balloon_scale: float = 1.0
 
 var terrains: Array = []
@@ -450,10 +458,33 @@ func _setup_balloon() -> void:
 		balloon_root.scale = Vector3.ONE * base_balloon_scale
 
 # Called one frame after FBX is added — now get_transformed_aabb() works correctly
+func _identify_envelope_mesh() -> void:
+	if not _fbx_node or not is_instance_valid(_fbx_node): return
+	var meshes := _fbx_node.find_children("*", "MeshInstance3D", true, false)
+	if meshes.size() == 0: return
+	
+	var largest_mesh: MeshInstance3D = null
+	var max_volume: float = -1.0
+	
+	for m: MeshInstance3D in meshes:
+		if m.mesh:
+			var aabb := m.get_aabb()
+			var volume := aabb.size.x * aabb.size.y * aabb.size.z
+			if volume > max_volume:
+				max_volume = volume
+				largest_mesh = m
+				
+	if largest_mesh:
+		envelope_node = largest_mesh
+		envelope_original_scale = largest_mesh.scale
+		print("BalloonGodot: Identified envelope mesh dynamically: ", largest_mesh.name, " with original scale: ", envelope_original_scale)
+
 func _auto_scale_fbx() -> void:
 	if not _fbx_node or not is_instance_valid(_fbx_node):
 		base_balloon_scale = 1.0
 		return
+
+	_identify_envelope_mesh()
 
 	var world_aabb := _world_aabb(_fbx_node)
 	var max_dim := maxf(world_aabb.size.x, maxf(world_aabb.size.y, world_aabb.size.z))
@@ -480,6 +511,8 @@ func _build_procedural_balloon() -> void:
 	em.material = emat
 	var envelope := MeshInstance3D.new(); envelope.mesh = em; envelope.position.y = 0.5
 	balloon_root.add_child(envelope)
+	envelope_node = envelope
+	envelope_original_scale = envelope.scale
 
 	# Ropes
 	for i in 4:
@@ -874,12 +907,14 @@ func _pump_up() -> void:
 	if game_mode != Mode.PLAYING: return
 	air_pressure = minf(100.0, air_pressure + 3.5)
 	vel_y += 0.08
+	spring_vel_y += 0.18 # stretch Y on burner
 	_spawn_flame()
 
 func _vent_down() -> void:
 	if game_mode != Mode.PLAYING: return
 	air_pressure = maxf(0.0, air_pressure - 3.5)
 	vel_y -= 0.08
+	spring_vel_y -= 0.18 # squish Y on vent
 	_spawn_vent_puff()
 
 
@@ -896,7 +931,7 @@ func _process(delta: float) -> void:
 		Mode.PLAYING: _update_playing(delta, fly_speed)
 		Mode.MENU:    _update_menu_idle()
 
-	_update_balloon_deflation()
+	_update_balloon_deflation(delta)
 
 func _scroll_world(fly_speed: float) -> void:
 	for t: Node3D in terrains:
@@ -967,8 +1002,18 @@ func _update_playing(delta: float, fly_speed: float) -> void:
 	if balloon_root:
 		balloon_root.position.x = pos_x
 		balloon_root.position.y = pos_y
-		balloon_root.rotation.x = clampf(vel_y * 0.4,   -0.12, 0.12)
-		balloon_root.rotation.z = clampf(-vel_x * 0.35, -0.25, 0.25)
+		
+		# Target tilts based on velocities
+		var target_rx := clampf(vel_y * 0.5, -0.15, 0.15)
+		var target_rz := clampf(-vel_x * 0.4, -0.3, 0.3)
+		
+		# Wind bobbing: subtle sine oscillations on X and Z axes
+		target_rx += cos(elapsed * 1.8) * 0.016
+		target_rz += sin(elapsed * 2.4) * 0.022
+		
+		# Smoothly sway towards target
+		balloon_root.rotation.x = lerpf(balloon_root.rotation.x, target_rx, 8.0 * delta)
+		balloon_root.rotation.z = lerpf(balloon_root.rotation.z, target_rz, 8.0 * delta)
 
 	# Camera follow
 	camera.position.x += (pos_x * 0.4 - camera.position.x) * 0.05
@@ -1001,6 +1046,7 @@ func _update_playing(delta: float, fly_speed: float) -> void:
 
 		if spike.position.distance_squared_to(bpos) < 1.21:  # 1.1 * 1.1
 			air_pressure -= 30.0
+			spring_vel_y = -0.55 # violent wobble on impact
 			_spawn_burst(spike.position, Color(0.937, 0.267, 0.267))
 			_spawn_popup("-30% AIR! ⚠️", Color(1.0, 0.3, 0.3))
 			_trigger_hit_flash()
@@ -1023,16 +1069,39 @@ func _update_menu_idle() -> void:
 # Balloon Deflation Visual (scale-based, replaces vertex deform)
 # As air drops the balloon squishes vertically and widens slightly
 # =================================================================
-func _update_balloon_deflation() -> void:
+func _update_balloon_deflation(delta: float) -> void:
 	if not balloon_root: return
-	if absf(air_pressure - last_deform_pressure) < 0.1: return
-	last_deform_pressure = air_pressure
+
+	# Solve spring physics (Hooke's Law with damping: force = -K * x - D * v)
+	var displacement := spring_scale_y - 1.0
+	var spring_force := -SPRING_K * displacement - SPRING_D * spring_vel_y
+	spring_vel_y += spring_force * delta
+	spring_scale_y += spring_vel_y * delta
+
+	# Guard scale limits to avoid visual collapse or flipping
+	spring_scale_y = clampf(spring_scale_y, 0.45, 1.8)
 
 	var p := clampf(air_pressure / 100.0, 0.0, 1.0)
 	var d := 1.0 - p
-	var sy   := base_balloon_scale * (1.0 - d * 0.38)  # shrinks vertically
-	var sxz  := base_balloon_scale * (1.0 + d * 0.08)  # widens slightly
-	balloon_root.scale = Vector3(sxz, sy, sxz)
+	
+	# Base scale from hot-air cooling/deflation (local scale values relative to 1.0)
+	# Y scale drops by up to 22% (drapes down).
+	# XZ scale collapses inward by up to 45% (collapses heavily).
+	var base_sy  := 1.0 - d * 0.22
+	var base_sxz := 1.0 - d * 0.45
+
+	# Combine base scaling with spring scaling (constant volume: scale Y, divide XZ by sqrt(Y))
+	var final_sy  := base_sy * spring_scale_y
+	var final_sxz := base_sxz / sqrt(spring_scale_y)
+
+	if envelope_node and is_instance_valid(envelope_node):
+		# Scale ONLY the envelope mesh (fabric), relative to its original scale!
+		envelope_node.scale = envelope_original_scale * Vector3(final_sxz, final_sy, final_sxz)
+		# Keep the root at its constant base scale
+		balloon_root.scale = Vector3.ONE * base_balloon_scale
+	else:
+		# Fallback: scale the entire root if envelope mesh cannot be identified
+		balloon_root.scale = Vector3(final_sxz, final_sy, final_sxz) * base_balloon_scale
 
 
 # =================================================================
