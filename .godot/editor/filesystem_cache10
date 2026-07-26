@@ -1,10 +1,13 @@
 78098b89c88a74ebe8c20117b8754620
-::res://::1785037027
+::res://::1785051807
 Bg.mp3::AudioStreamMP3::2427889817751546629::1785032669::1785033460::1::::<><><>0<>0<>36b9177739db7c7d14102d5417716c26<>res://.godot/imported/Bg.mp3-3da77e5b44e7eb5374fbaa67c99599df.mp3str::
 cat-laugh-lose.mp3::AudioStreamMP3::4117330673599237997::1785033099::1785033460::1::::<><><>0<>0<>957b2c4f62d1f6906ebb9aa3d61b9460<>res://.godot/imported/cat-laugh-lose.mp3-239d240b165df9f6973b8c681943bce6.mp3str::
-export_presets.cfg::TextFile::-1::1785034874::0::1::::<><><>0<>0<><>::
+export_presets.cfg::TextFile::-1::1785051717::0::1::::<><><>0<>0<><>::
 fah-gets-hit-by-obstacle.mp3::AudioStreamMP3::755258679965474439::1785033300::1785033460::1::::<><><>0<>0<>550ac9bb2903e3889eb96629abc9a643<>res://.godot/imported/fah-gets-hit-by-obstacle.mp3-1f3508166fa6fac72aa048368b518c45.mp3str::
 got-fuel.mp3::AudioStreamMP3::4829339757213887130::1785033439::1785033460::1::::<><><>0<>0<>e6132805aaa559e19f817833a9608912<>res://.godot/imported/got-fuel.mp3-5b58f2db822f70db0776f80e1077fd77.mp3str::
+README.md::TextFile::-1::1785051676::0::1::::<><><>0<>0<><>::
+thumbnail.jpg::CompressedTexture2D::7541933540123960918::1785051798::1785051811::1::::<><><>0<>0<>035c6eb0273d6f9903b70911b0476fe6<>res://.godot/imported/thumbnail.jpg-a85c54b3eba9d0d36353d331f4dab0f4.ctex::
+thumbnail.png::CompressedTexture2D::4914928444554803061::1785051798::1785051811::1::::<><><>0<>0<>b30f7a39e0b20cc1f411a198f47d1d53<>res://.godot/imported/thumbnail.png-3f545d161fd110f6ef4e5b6d4c7c77a7.ctex::
 ::res://assets/::1785036556
 baloon.fbx::PackedScene::231079083268042458::1784942858::1784952999::1::::<><><>0<>0<>8bfa0ef121dba32ea134eb24de7df0db<>res://.godot/imported/baloon.fbx-be3a747931309733b2ffb6da808c36d1.scn::
 ::res://assets/obstalces/::1785036624
@@ -12,5 +15,5 @@ Spike Mine by Aaron Clifford - 4VRVeCH1sHm.glb::PackedScene::6117078366538540862
 Spiky Ball by Quaternius - HEKBGK7iIk.glb::PackedScene::6362928776897024295::1785036539::1785036624::1::::<><><>0<>0<>b7f50e3688152a925cbce28e05adabef<>res://.godot/imported/Spiky Ball by Quaternius - HEKBGK7iIk.glb-9beed2dd458eb854a11ec8fe4c9469cf.scn::
 ::res://scenes/::1784951941
 Main.tscn::PackedScene::-1::1784951941::0::1::::<><><>0<>0<><>::res://scripts/GameManager.gd
-::res://scripts/::1785033507
-GameManager.gd::GDScript::8691997538029849775::1785037004::0::1::::<>Node3D<><>0<>0<><>::
+::res://scripts/::1785050887
+GameManager.gd::GDScript::8691997538029849775::1785050911::0::1::::<>Node3D<><>0<>0<><>::
