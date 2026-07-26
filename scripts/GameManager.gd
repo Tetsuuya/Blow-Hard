@@ -425,46 +425,33 @@ func _reset_pump(pump: Node3D) -> void:
 
 
 # =================================================================
-# Hazards - Spikes (red sphere + 10 outward cones)
+# Hazards - Spikes (loaded from GLB assets, randomly varied)
 # =================================================================
+var _spike_models: Array[String] = [
+	"res://assets/obstalces/Spike Mine by Aaron Clifford - 4VRVeCH1sHm.glb",
+]
+
 func _create_spike() -> Node3D:
 	var g := Node3D.new()
 
-	# Core sphere
-	var sm := SphereMesh.new(); sm.radius = 0.35; sm.height = 0.7
-	var smat := StandardMaterial3D.new()
-	smat.albedo_color            = Color(0.937, 0.267, 0.267)
-	smat.metallic                = 0.1; smat.roughness = 0.8
-	smat.emission_enabled        = false
-	sm.material = smat
-	var core := MeshInstance3D.new(); core.mesh = sm
-	g.add_child(core)
-
-	# Spike cones
-	var cmat := StandardMaterial3D.new()
-	cmat.albedo_color = Color(0.118, 0.161, 0.239); cmat.metallic = 0.9; cmat.roughness = 0.1
-
-	var dirs := [
-		Vector3(1,0,0), Vector3(-1,0,0), Vector3(0,1,0), Vector3(0,-1,0),
-		Vector3(0,0,1), Vector3(0,0,-1),
-		Vector3(0.7,0.7,0).normalized(), Vector3(-0.7,0.7,0).normalized(),
-		Vector3(0.7,-0.7,0).normalized(), Vector3(-0.7,-0.7,0).normalized()
-	]
-
-	for dir: Vector3 in dirs:
-		var pm := CylinderMesh.new()
-		pm.top_radius = 0.0; pm.bottom_radius = 0.09; pm.height = 0.45; pm.radial_segments = 6
-		pm.material = cmat
-		var spike := MeshInstance3D.new(); spike.mesh = pm
-		spike.position = dir * 0.35
-		# Rotate so the cone tip points outward from center
-		if dir.dot(Vector3.UP) < -0.999:
-			spike.rotate_z(PI)
-		elif dir.dot(Vector3.UP) < 0.999:
-			var axis := Vector3.UP.cross(dir)
-			if axis.length_squared() > 0.0001:
-				spike.rotate(axis.normalized(), Vector3.UP.angle_to(dir))
-		g.add_child(spike)
+	# Pick a random model from the available GLB assets
+	var model_path: String = _spike_models[randi() % _spike_models.size()]
+	var scene: PackedScene = load(model_path)
+	if scene:
+		print("✅ Spike model loaded: ", model_path)
+		var model := scene.instantiate()
+		model.scale = Vector3(15.0, 15.0, 15.0)
+		g.add_child(model)
+	else:
+		print("❌ Spike model FAILED to load: ", model_path, " — using fallback sphere")
+		# Fallback: simple red sphere if model fails to load
+		var sm := SphereMesh.new(); sm.radius = 0.35; sm.height = 0.7
+		var smat := StandardMaterial3D.new()
+		smat.albedo_color = Color(0.937, 0.267, 0.267)
+		smat.metallic = 0.1; smat.roughness = 0.8
+		sm.material = smat
+		var core := MeshInstance3D.new(); core.mesh = sm
+		g.add_child(core)
 
 	return g
 

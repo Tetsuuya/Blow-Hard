@@ -1,12 +1,16 @@
 78098b89c88a74ebe8c20117b8754620
-::res://::1785033452
+::res://::1785037027
 Bg.mp3::AudioStreamMP3::2427889817751546629::1785032669::1785033460::1::::<><><>0<>0<>36b9177739db7c7d14102d5417716c26<>res://.godot/imported/Bg.mp3-3da77e5b44e7eb5374fbaa67c99599df.mp3str::
 cat-laugh-lose.mp3::AudioStreamMP3::4117330673599237997::1785033099::1785033460::1::::<><><>0<>0<>957b2c4f62d1f6906ebb9aa3d61b9460<>res://.godot/imported/cat-laugh-lose.mp3-239d240b165df9f6973b8c681943bce6.mp3str::
+export_presets.cfg::TextFile::-1::1785034874::0::1::::<><><>0<>0<><>::
 fah-gets-hit-by-obstacle.mp3::AudioStreamMP3::755258679965474439::1785033300::1785033460::1::::<><><>0<>0<>550ac9bb2903e3889eb96629abc9a643<>res://.godot/imported/fah-gets-hit-by-obstacle.mp3-1f3508166fa6fac72aa048368b518c45.mp3str::
 got-fuel.mp3::AudioStreamMP3::4829339757213887130::1785033439::1785033460::1::::<><><>0<>0<>e6132805aaa559e19f817833a9608912<>res://.godot/imported/got-fuel.mp3-5b58f2db822f70db0776f80e1077fd77.mp3str::
-::res://assets/::1784952999
+::res://assets/::1785036556
 baloon.fbx::PackedScene::231079083268042458::1784942858::1784952999::1::::<><><>0<>0<>8bfa0ef121dba32ea134eb24de7df0db<>res://.godot/imported/baloon.fbx-be3a747931309733b2ffb6da808c36d1.scn::
+::res://assets/obstalces/::1785036624
+Spike Mine by Aaron Clifford - 4VRVeCH1sHm.glb::PackedScene::6117078366538540862::1785036548::1785036622::1::::<><><>0<>0<>a8a3c39d43160c13c4b2b1c8720b4f3c<>res://.godot/imported/Spike Mine by Aaron Clifford - 4VRVeCH1sHm.glb-9471a47209af815dd866afaec58d82b0.scn::
+Spiky Ball by Quaternius - HEKBGK7iIk.glb::PackedScene::6362928776897024295::1785036539::1785036624::1::::<><><>0<>0<>b7f50e3688152a925cbce28e05adabef<>res://.godot/imported/Spiky Ball by Quaternius - HEKBGK7iIk.glb-9beed2dd458eb854a11ec8fe4c9469cf.scn::
 ::res://scenes/::1784951941
 Main.tscn::PackedScene::-1::1784951941::0::1::::<><><>0<>0<><>::res://scripts/GameManager.gd
-::res://scripts/::1784952997
-GameManager.gd::GDScript::8691997538029849775::1785033305::0::1::::<>Node3D<><>0<>0<><>::
+::res://scripts/::1785033507
+GameManager.gd::GDScript::8691997538029849775::1785037004::0::1::::<>Node3D<><>0<>0<><>::
