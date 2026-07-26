@@ -12,7 +12,8 @@ extends Node3D
 enum Mode { MENU, PLAYING, GAME_OVER }
 var game_mode: Mode = Mode.MENU
 
-var air_pressure: float = 100.0
+var air_pressure: float = 100.0 # Active Fuel Level bar (0% to 100%)
+var balloon_heat: float = 50.0  # Internal envelope heat (buoyancy)
 var drain_rate: float = 2.5
 var score: float = 0.0
 var survival_time: float = 0.0
@@ -37,6 +38,7 @@ const SPRING_D: float = 3.2
 # 3D Scene Objects
 # -------------------------------------------------------
 var camera: Camera3D = null
+var camera_shake_intensity: float = 0.0
 var balloon_root: Node3D = null
 var envelope_node: Node3D = null
 var envelope_original_scale: Vector3 = Vector3.ONE
@@ -601,9 +603,7 @@ func _build_hud(canvas: CanvasLayer) -> void:
 	time_label = tc.get_child(0).get_child(1) as Label
 	top.add_child(tc)
 
-	var pc := _hud_card("PUMPS", "0 ⛽")
-	pumps_label = pc.get_child(0).get_child(1) as Label
-	top.add_child(pc)
+
 
 	# Air gauge
 	var air_panel := PanelContainer.new()
@@ -617,7 +617,7 @@ func _build_hud(canvas: CanvasLayer) -> void:
 	var av := VBoxContainer.new(); av.add_theme_constant_override("separation", 6); air_panel.add_child(av)
 	var ah := HBoxContainer.new(); ah.add_theme_constant_override("separation", 8); av.add_child(ah)
 
-	var air_lbl := Label.new(); air_lbl.text = "🎈 AIR PRESSURE"
+	var air_lbl := Label.new(); air_lbl.text = "⛽ FUEL LEVEL"
 	air_lbl.add_theme_font_size_override("font_size", 13)
 	air_lbl.add_theme_color_override("font_color", Color(0.75, 0.90, 1.0))
 	ah.add_child(air_lbl)
@@ -655,7 +655,7 @@ func _build_hud(canvas: CanvasLayer) -> void:
 	bl.button_up.connect(func(): key_left = false)
 	tc_row.add_child(bl)
 
-	var bu := _touch_btn("▲ PUMP", true)
+	var bu := _touch_btn("▲ BURNER", true)
 	bu.pressed.connect(func(): if game_mode == Mode.PLAYING: _pump_up())
 	tc_row.add_child(bu)
 
@@ -747,13 +747,13 @@ func _build_main_menu(canvas: CanvasLayer) -> void:
 	vb.add_child(HSeparator.new())
 
 	var rules := Label.new()
-	rules.text = "⏳  Air cools down — balance lift to stay aloft\n⛽  Collect green pumps  →  +25% Air!\n⚠️  Avoid red spikes  →  -30% Air (instant!)"
+	rules.text = "⏳  Air cools down — balance lift to stay aloft\n⛽  Collect green gas tanks  →  +25% Fuel!\n⚠️  Avoid red spikes  →  -30% Fuel (instant!)"
 	rules.add_theme_font_size_override("font_size", 14)
 	rules.add_theme_color_override("font_color", Color(0.85, 0.92, 1.0))
 	rules.autowrap_mode = TextServer.AUTOWRAP_WORD; vb.add_child(rules)
 
 	var ctrl_lbl := Label.new()
-	ctrl_lbl.text = "A/D (steer)   •   W/SPACE (pump up)   •   S/DOWN (vent down)"
+	ctrl_lbl.text = "A/D (steer)   •   W/SPACE (burner - rise)   •   S/DOWN (vent - sink)"
 	ctrl_lbl.add_theme_font_size_override("font_size", 13)
 	ctrl_lbl.add_theme_color_override("font_color", Color(0.6, 0.72, 1.0, 0.82))
 	ctrl_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; vb.add_child(ctrl_lbl)
@@ -809,7 +809,7 @@ func _build_gameover(canvas: CanvasLayer) -> void:
 
 	var sb := _result_box("Final Score", "0"); res_score_label = sb.get_child(0).get_child(1) as Label; rh.add_child(sb)
 	var tb := _result_box("Time", "0s");       res_time_label  = tb.get_child(0).get_child(1) as Label; rh.add_child(tb)
-	var pb := _result_box("Pumps", "0");       res_pumps_label = pb.get_child(0).get_child(1) as Label; rh.add_child(pb)
+	var pb := _result_box("Gas Tanks", "0");       res_pumps_label = pb.get_child(0).get_child(1) as Label; rh.add_child(pb)
 
 	var restart_btn := _menu_btn("↺   PLAY AGAIN", Color(0.12, 0.47, 1.0))
 	restart_btn.pressed.connect(_start_game); vb.add_child(restart_btn)
@@ -870,7 +870,8 @@ func _input(event: InputEvent) -> void:
 # =================================================================
 func _start_game() -> void:
 	game_mode      = Mode.PLAYING
-	air_pressure   = 100.0
+	air_pressure   = 100.0 # Active fuel starts at 100%
+	balloon_heat   = 50.0  # Heat starts at 50%
 	drain_rate     = 2.5
 	score          = 0.0
 	survival_time  = 0.0
@@ -905,14 +906,21 @@ func _game_over(reason: String) -> void:
 
 func _pump_up() -> void:
 	if game_mode != Mode.PLAYING: return
-	air_pressure = minf(100.0, air_pressure + 3.5)
+	if air_pressure <= 0.0: return # Out of active fuel!
+	
+	# Burner consumes fuel directly from active fuel level bar (air_pressure)
+	air_pressure = maxf(0.0, air_pressure - 2.5)
+	balloon_heat = minf(100.0, balloon_heat + 12.0)
+	
+	# Fire burner & lift
 	vel_y += 0.08
 	spring_vel_y += 0.18 # stretch Y on burner
 	_spawn_flame()
 
 func _vent_down() -> void:
 	if game_mode != Mode.PLAYING: return
-	air_pressure = maxf(0.0, air_pressure - 3.5)
+	
+	# Venting releases hot air/lift velocity (free, does not affect fuel)
 	vel_y -= 0.08
 	spring_vel_y -= 0.18 # squish Y on vent
 	_spawn_vent_puff()
@@ -923,7 +931,7 @@ func _vent_down() -> void:
 # =================================================================
 func _process(delta: float) -> void:
 	elapsed += delta
-	var fly_speed := (8.0 + survival_time * 0.2) * delta
+	var fly_speed := (16.0 + survival_time * 0.45) * delta
 
 	_scroll_world(fly_speed)
 
@@ -955,14 +963,17 @@ func _update_playing(delta: float, fly_speed: float) -> void:
 	survival_time += delta
 	score         += delta * 18.0
 	
-	# Passive air cooling (increases slightly over time)
-	var cooling_rate := 3.0 + survival_time * 0.012
-	air_pressure -= cooling_rate * delta
-	air_pressure = clampf(air_pressure, 0.0, 100.0)
+	# Passive fuel consumption (the progress bar drains constantly, getting faster as survival time increases)
+	var fuel_drain := (6.5 + survival_time * 0.035) * delta
+	air_pressure = maxf(0.0, air_pressure - fuel_drain)
 
+	# Passive air heat cooling (decays towards ambient/cold temperature of 0%)
+	balloon_heat = lerpf(balloon_heat, 0.0, 0.72 * delta)
+
+	# Game over condition: fuel level reaches 0%
 	if air_pressure <= 0.0:
 		air_pressure = 0.0
-		_game_over("Your air pressure ran out completely!")
+		_game_over("Your fuel level ran out completely!")
 		return
 
 	# HUD updates
@@ -970,11 +981,14 @@ func _update_playing(delta: float, fly_speed: float) -> void:
 	var mins := str(int(survival_time) / 60).pad_zeros(2)
 	var secs := str(int(survival_time) % 60).pad_zeros(2)
 	time_label.text        = mins + ":" + secs
-	pumps_label.text       = str(pumps_collected) + " ⛽"
+	
+	# Show GAS TANKS collected count only if valid
+	if pumps_label:
+		pumps_label.text       = str(pumps_collected) + " ⛽"
 	air_percent_label.text = str(int(air_pressure)) + "%"
 	air_fill_bar.value     = air_pressure
 
-	# Air gauge color: green → yellow → red
+	# Fuel gauge color: green (full) → yellow (half) → red (empty)
 	if air_fill_style:
 		if air_pressure > 60.0:
 			air_fill_style.bg_color = Color(0.18, 0.85, 0.65)
@@ -988,9 +1002,9 @@ func _update_playing(delta: float, fly_speed: float) -> void:
 	if key_right: vel_x += 0.45 * delta
 	vel_x *= 0.90
 	
-	# Calculate passive buoyancy: neutral hover at ~50.6% air pressure
-	var lift_factor := air_pressure / 100.0
-	var buoyancy_acc := (lift_factor * 0.45 - 0.228) * delta
+	# Calculate passive buoyancy: neutral hover at ~51.8% balloon heat
+	var lift_factor := balloon_heat / 100.0
+	var buoyancy_acc := (lift_factor * 0.44 - 0.228) * delta
 	vel_y += buoyancy_acc
 	vel_y *= 0.96 # air resistance/damping
 	
@@ -1016,11 +1030,27 @@ func _update_playing(delta: float, fly_speed: float) -> void:
 		balloon_root.rotation.z = lerpf(balloon_root.rotation.z, target_rz, 8.0 * delta)
 
 	# Camera follow
-	camera.position.x += (pos_x * 0.4 - camera.position.x) * 0.05
-	camera.position.y += (pos_y * 0.3 + 1.8 - camera.position.y) * 0.05
+	var base_cam_x := camera.position.x + (pos_x * 0.4 - camera.position.x) * 0.05
+	var base_cam_y := camera.position.y + (pos_y * 0.3 + 1.8 - camera.position.y) * 0.05
+	
+	camera.position.x = base_cam_x
+	camera.position.y = base_cam_y
+	
+	# Decay screen shake intensity
+	camera_shake_intensity = lerpf(camera_shake_intensity, 0.0, 6.0 * delta)
+	
+	# Apply camera position shake offset
+	if camera_shake_intensity > 0.001:
+		camera.position.x += randf_range(-1.0, 1.0) * camera_shake_intensity * 0.35
+		camera.position.y += randf_range(-1.0, 1.0) * camera_shake_intensity * 0.35
+
 	var look_at_pos := Vector3(pos_x * 0.2, pos_y * 0.2 + 0.5, 0.0)
 	if camera.global_position.distance_squared_to(look_at_pos) > 0.0001:
 		camera.look_at(look_at_pos)
+		
+	# Apply camera roll/tilt shake after look_at (since look_at resets roll to 0)
+	if camera_shake_intensity > 0.001:
+		camera.rotation.z += randf_range(-1.0, 1.0) * camera_shake_intensity * 0.06
 
 	# Air Pumps (collectibles)
 	var bpos := balloon_root.global_position if balloon_root else Vector3.ZERO
@@ -1034,7 +1064,7 @@ func _update_playing(delta: float, fly_speed: float) -> void:
 			score        += 150.0
 			pumps_collected += 1
 			_spawn_burst(pump.position, Color(0.204, 0.827, 0.6))
-			_spawn_popup("+25% AIR! ⛽", Color(0.2, 1.0, 0.6))
+			_spawn_popup("+25% FUEL! ⛽", Color(0.2, 1.0, 0.6))
 			_reset_pump(pump)
 		elif pump.position.z > 6.0:
 			_reset_pump(pump)
@@ -1045,16 +1075,16 @@ func _update_playing(delta: float, fly_speed: float) -> void:
 		spike.rotate_x(0.03); spike.rotate_y(0.04)
 
 		if spike.position.distance_squared_to(bpos) < 1.21:  # 1.1 * 1.1
-			air_pressure -= 30.0
+			air_pressure = maxf(0.0, air_pressure - 30.0)   # Lose 30% active fuel
+			balloon_heat = maxf(20.0, balloon_heat - 40.0)   # Envelope damage
 			spring_vel_y = -0.55 # violent wobble on impact
 			_spawn_burst(spike.position, Color(0.937, 0.267, 0.267))
-			_spawn_popup("-30% AIR! ⚠️", Color(1.0, 0.3, 0.3))
+			_spawn_popup("-30% FUEL! ⚠️", Color(1.0, 0.3, 0.3))
 			_trigger_hit_flash()
-			camera.position.x += randf_range(-0.45, 0.45)
-			camera.position.y += randf_range(-0.45, 0.45)
+			camera_shake_intensity = 0.75 # Trigger physical camera shake
 			_reset_spike(spike)
 			if air_pressure <= 0.0:
-				_game_over("A spike popped your balloon!")
+				_game_over("A spike popped your fuel tank!")
 				return
 		elif spike.position.z > 6.0:
 			_reset_spike(spike)
@@ -1081,7 +1111,7 @@ func _update_balloon_deflation(delta: float) -> void:
 	# Guard scale limits to avoid visual collapse or flipping
 	spring_scale_y = clampf(spring_scale_y, 0.45, 1.8)
 
-	var p := clampf(air_pressure / 100.0, 0.0, 1.0)
+	var p := clampf(balloon_heat / 100.0, 0.0, 1.0)
 	var d := 1.0 - p
 	
 	# Base scale from hot-air cooling/deflation (local scale values relative to 1.0)
@@ -1215,7 +1245,9 @@ func _spawn_popup(text: String, col: Color) -> void:
 	tw.chain().tween_callback(lbl.queue_free)
 
 func _trigger_hit_flash() -> void:
+	if not hit_flash: return
 	hit_flash.visible = true
-	get_tree().create_timer(0.18).timeout.connect(func():
-		if is_instance_valid(hit_flash): hit_flash.visible = false
-	)
+	hit_flash.color.a = 0.45
+	var tw := create_tween()
+	tw.tween_property(hit_flash, "color:a", 0.0, 0.45)
+	tw.chain().tween_callback(func(): hit_flash.visible = false)
