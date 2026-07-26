@@ -801,13 +801,24 @@ func _build_main_menu(canvas: CanvasLayer) -> void:
 	card.set_anchor(SIDE_LEFT, 0.5);  card.set_anchor(SIDE_RIGHT, 0.5)
 	card.set_anchor(SIDE_TOP, 0.5);   card.set_anchor(SIDE_BOTTOM, 0.5)
 	card.offset_left = -260; card.offset_right  = 260
-	card.offset_top  = -190; card.offset_bottom = 190
+	card.offset_top  = -250; card.offset_bottom = 230
 	menu_screen.add_child(card)
 
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 16)
+	vb.add_theme_constant_override("separation", 12)
 	vb.alignment = BoxContainer.ALIGNMENT_CENTER
 	card.add_child(vb)
+
+	# Cover Banner Image (thumbnail.jpg)
+	if ResourceLoader.exists("res://thumbnail.jpg"):
+		var tex := load("res://thumbnail.jpg") as Texture2D
+		if tex:
+			var tr := TextureRect.new()
+			tr.texture = tex
+			tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+			tr.custom_minimum_size = Vector2(460, 140)
+			vb.add_child(tr)
 
 	# Sub-header badge
 	var badge := Label.new(); badge.text = "3D AIR SURVIVAL"
