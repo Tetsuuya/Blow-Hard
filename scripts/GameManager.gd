@@ -9,7 +9,7 @@ extends Node3D
 # -------------------------------------------------------
 # Game State
 # -------------------------------------------------------
-enum Mode { MENU, PLAYING, GAME_OVER }
+enum Mode { MENU, PLAYING, PAUSED, GAME_OVER }
 var game_mode: Mode = Mode.MENU
 
 var air_pressure: float = 100.0 # Active Fuel Level bar (0% to 100%)
@@ -39,6 +39,10 @@ const SPRING_D: float = 3.2
 # -------------------------------------------------------
 var camera: Camera3D = null
 var camera_shake_intensity: float = 0.0
+var bg_music: AudioStreamPlayer = null
+var lose_sfx_player: AudioStreamPlayer = null
+var hit_sfx_player: AudioStreamPlayer = null
+var fuel_sfx_player: AudioStreamPlayer = null
 var balloon_root: Node3D = null
 var envelope_node: Node3D = null
 var envelope_original_scale: Vector3 = Vector3.ONE
@@ -56,6 +60,7 @@ var spikes: Array = []
 # -------------------------------------------------------
 var menu_screen: Control = null
 var gameover_screen: Control = null
+var pause_screen: Control = null
 var game_hud: Control = null
 var air_fill_bar: ProgressBar = null
 var air_fill_style: StyleBoxFlat = null
@@ -94,6 +99,71 @@ func _ready() -> void:
 	_setup_collectibles()
 	_setup_balloon()
 	_setup_ui()
+	_setup_bg_music()
+
+func _setup_bg_music() -> void:
+	bg_music = AudioStreamPlayer.new()
+	bg_music.name = "BGMPlayer"
+	
+	# Load the audio stream
+	var music_path := "res://Bg.mp3"
+	if ResourceLoader.exists(music_path):
+		var stream := load(music_path)
+		if stream:
+			if stream is AudioStreamMP3:
+				stream.loop = true
+			bg_music.stream = stream
+			bg_music.volume_db = -8.0 # Starting volume (Menu)
+			add_child(bg_music)
+			bg_music.play()
+
+	# Load lose sound effect
+	lose_sfx_player = AudioStreamPlayer.new()
+	lose_sfx_player.name = "LoseSFXPlayer"
+	var lose_path := "res://cat-laugh-lose.mp3"
+	if ResourceLoader.exists(lose_path):
+		var stream := load(lose_path)
+		if stream:
+			if stream is AudioStreamMP3:
+				stream.loop = false
+			lose_sfx_player.stream = stream
+			lose_sfx_player.finished.connect(_on_lose_sfx_finished)
+			add_child(lose_sfx_player)
+
+	# Load hit sound effect
+	hit_sfx_player = AudioStreamPlayer.new()
+	hit_sfx_player.name = "HitSFXPlayer"
+	var hit_path := "res://fah-gets-hit-by-obstacle.mp3"
+	if ResourceLoader.exists(hit_path):
+		var stream := load(hit_path)
+		if stream:
+			if stream is AudioStreamMP3:
+				stream.loop = false
+			hit_sfx_player.stream = stream
+			add_child(hit_sfx_player)
+
+	# Load fuel sound effect
+	fuel_sfx_player = AudioStreamPlayer.new()
+	fuel_sfx_player.name = "FuelSFXPlayer"
+	var fuel_path := "res://got-fuel.mp3"
+	if ResourceLoader.exists(fuel_path):
+		var stream := load(fuel_path)
+		if stream:
+			if stream is AudioStreamMP3:
+				stream.loop = false
+			fuel_sfx_player.stream = stream
+			add_child(fuel_sfx_player)
+
+func _fade_bg_music(target_db: float, duration: float) -> void:
+	if not bg_music: return
+	var tw := create_tween()
+	tw.tween_property(bg_music, "volume_db", target_db, duration)
+
+func _on_lose_sfx_finished() -> void:
+	if game_mode == Mode.GAME_OVER:
+		if bg_music and not bg_music.playing:
+			bg_music.play()
+			bg_music.volume_db = -8.0 # back to normal menu volume!
 
 
 # =================================================================
@@ -578,6 +648,7 @@ func _setup_ui() -> void:
 	_build_hud(canvas)
 	_build_main_menu(canvas)
 	_build_gameover(canvas)
+	_build_pause(canvas)
 
 # --- HUD ---
 func _build_hud(canvas: CanvasLayer) -> void:
@@ -603,6 +674,30 @@ func _build_hud(canvas: CanvasLayer) -> void:
 	time_label = tc.get_child(0).get_child(1) as Label
 	top.add_child(tc)
 
+	# Pause button in top-right
+	var pause_btn := Button.new()
+	pause_btn.text = "||"
+	pause_btn.custom_minimum_size = Vector2(44, 44)
+	pause_btn.set_anchor(SIDE_LEFT, 1.0);  pause_btn.set_anchor(SIDE_RIGHT, 1.0)
+	pause_btn.set_anchor(SIDE_TOP, 0.0);   pause_btn.set_anchor(SIDE_BOTTOM, 0.0)
+	pause_btn.offset_left = -60;  pause_btn.offset_right = -16
+	pause_btn.offset_top = 16;    pause_btn.offset_bottom = 60
+	
+	# Stylize it
+	var s_btn := StyleBoxFlat.new()
+	s_btn.bg_color = Color(0.12, 0.15, 0.30, 0.72)
+	s_btn.set_corner_radius_all(22)
+	s_btn.set_border_width_all(1)
+	s_btn.border_color = Color(1, 1, 1, 0.15)
+	pause_btn.add_theme_stylebox_override("normal", s_btn)
+	var s_btn_h := s_btn.duplicate() as StyleBoxFlat
+	s_btn_h.bg_color = Color(0.24, 0.28, 0.50, 0.88)
+	pause_btn.add_theme_stylebox_override("hover", s_btn_h)
+	pause_btn.add_theme_font_size_override("font_size", 16)
+	
+	pause_btn.pressed.connect(_pause_game)
+	game_hud.add_child(pause_btn)
+
 
 
 	# Air gauge
@@ -617,7 +712,7 @@ func _build_hud(canvas: CanvasLayer) -> void:
 	var av := VBoxContainer.new(); av.add_theme_constant_override("separation", 6); air_panel.add_child(av)
 	var ah := HBoxContainer.new(); ah.add_theme_constant_override("separation", 8); av.add_child(ah)
 
-	var air_lbl := Label.new(); air_lbl.text = "⛽ FUEL LEVEL"
+	var air_lbl := Label.new(); air_lbl.text = "FUEL LEVEL"
 	air_lbl.add_theme_font_size_override("font_size", 13)
 	air_lbl.add_theme_color_override("font_color", Color(0.75, 0.90, 1.0))
 	ah.add_child(air_lbl)
@@ -718,8 +813,8 @@ func _build_main_menu(canvas: CanvasLayer) -> void:
 	card.add_theme_stylebox_override("panel", _glass_panel(18.0, 0.88))
 	card.set_anchor(SIDE_LEFT, 0.5);  card.set_anchor(SIDE_RIGHT, 0.5)
 	card.set_anchor(SIDE_TOP, 0.5);   card.set_anchor(SIDE_BOTTOM, 0.5)
-	card.offset_left = -290; card.offset_right  = 290
-	card.offset_top  = -275; card.offset_bottom = 275
+	card.offset_left = -260; card.offset_right  = 260
+	card.offset_top  = -190; card.offset_bottom = 190
 	menu_screen.add_child(card)
 
 	var vb := VBoxContainer.new()
@@ -727,38 +822,41 @@ func _build_main_menu(canvas: CanvasLayer) -> void:
 	vb.alignment = BoxContainer.ALIGNMENT_CENTER
 	card.add_child(vb)
 
-	var badge := Label.new(); badge.text = "🎈  3D AIR SURVIVAL"
-	badge.add_theme_font_size_override("font_size", 13)
+	# Sub-header badge
+	var badge := Label.new(); badge.text = "3D AIR SURVIVAL"
+	badge.add_theme_font_size_override("font_size", 12)
 	badge.add_theme_color_override("font_color", Color(0.4, 0.82, 1.0))
-	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; vb.add_child(badge)
+	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(badge)
 
-	var title := Label.new(); title.text = "Balloon Air Escape"
-	title.add_theme_font_size_override("font_size", 38)
+	# Game Title
+	var title := Label.new(); title.text = "Hiss & Diss"
+	title.add_theme_font_size_override("font_size", 32)
 	title.add_theme_color_override("font_color", Color.WHITE)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; vb.add_child(title)
-
-	var sub := Label.new()
-	sub.text = "Keep your hot-air balloon inflated before the air leaks out!"
-	sub.add_theme_font_size_override("font_size", 14)
-	sub.add_theme_color_override("font_color", Color(0.72, 0.84, 1.0, 0.88))
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sub.autowrap_mode = TextServer.AUTOWRAP_WORD; vb.add_child(sub)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(title)
 
 	vb.add_child(HSeparator.new())
 
-	var rules := Label.new()
-	rules.text = "⏳  Air cools down — balance lift to stay aloft\n⛽  Collect green gas tanks  →  +25% Fuel!\n⚠️  Avoid red spikes  →  -30% Fuel (instant!)"
-	rules.add_theme_font_size_override("font_size", 14)
-	rules.add_theme_color_override("font_color", Color(0.85, 0.92, 1.0))
-	rules.autowrap_mode = TextServer.AUTOWRAP_WORD; vb.add_child(rules)
-
+	# Simple Controls Label
 	var ctrl_lbl := Label.new()
-	ctrl_lbl.text = "A/D (steer)   •   W/SPACE (burner - rise)   •   S/DOWN (vent - sink)"
-	ctrl_lbl.add_theme_font_size_override("font_size", 13)
-	ctrl_lbl.add_theme_color_override("font_color", Color(0.6, 0.72, 1.0, 0.82))
-	ctrl_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; vb.add_child(ctrl_lbl)
+	ctrl_lbl.text = "Steer Left / Right:  A / D   or   Arrow Keys\nBurner (Rise):  W / Space / Up Arrow\nVent Valve (Sink):  S / Down Arrow"
+	ctrl_lbl.add_theme_font_size_override("font_size", 14)
+	ctrl_lbl.add_theme_color_override("font_color", Color(0.85, 0.92, 1.0))
+	ctrl_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(ctrl_lbl)
 
-	var start_btn := _menu_btn("▶   START GAME", Color(0.12, 0.47, 1.0))
+	# Simple Rules Label
+	var rules_lbl := Label.new()
+	rules_lbl.text = "Collect green canisters to gain +25% fuel.\nAvoid red spikes to prevent -30% damage."
+	rules_lbl.add_theme_font_size_override("font_size", 13)
+	rules_lbl.add_theme_color_override("font_color", Color(0.65, 0.78, 1.0, 0.85))
+	rules_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(rules_lbl)
+
+	vb.add_child(HSeparator.new())
+
+	var start_btn := _menu_btn("START GAME", Color(0.12, 0.47, 1.0))
 	start_btn.pressed.connect(_start_game); vb.add_child(start_btn)
 
 # --- Game Over ---
@@ -779,7 +877,7 @@ func _build_gameover(canvas: CanvasLayer) -> void:
 	card.set_anchor(SIDE_LEFT, 0.5);  card.set_anchor(SIDE_RIGHT, 0.5)
 	card.set_anchor(SIDE_TOP, 0.5);   card.set_anchor(SIDE_BOTTOM, 0.5)
 	card.offset_left = -260; card.offset_right  = 260
-	card.offset_top  = -235; card.offset_bottom = 235
+	card.offset_top  = -260; card.offset_bottom = 260
 	gameover_screen.add_child(card)
 
 	var vb := VBoxContainer.new()
@@ -787,7 +885,7 @@ func _build_gameover(canvas: CanvasLayer) -> void:
 	vb.alignment = BoxContainer.ALIGNMENT_CENTER
 	card.add_child(vb)
 
-	var go_badge := Label.new(); go_badge.text = "💥  GAME OVER"
+	var go_badge := Label.new(); go_badge.text = "GAME OVER"
 	go_badge.add_theme_font_size_override("font_size", 14)
 	go_badge.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
 	go_badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER; vb.add_child(go_badge)
@@ -811,8 +909,101 @@ func _build_gameover(canvas: CanvasLayer) -> void:
 	var tb := _result_box("Time", "0s");       res_time_label  = tb.get_child(0).get_child(1) as Label; rh.add_child(tb)
 	var pb := _result_box("Gas Tanks", "0");       res_pumps_label = pb.get_child(0).get_child(1) as Label; rh.add_child(pb)
 
-	var restart_btn := _menu_btn("↺   PLAY AGAIN", Color(0.12, 0.47, 1.0))
+	var restart_btn := _menu_btn("PLAY AGAIN", Color(0.12, 0.47, 1.0))
 	restart_btn.pressed.connect(_start_game); vb.add_child(restart_btn)
+
+	var menu_btn := _menu_btn("MAIN MENU", Color(0.24, 0.26, 0.35))
+	menu_btn.pressed.connect(func():
+		game_mode = Mode.MENU
+		gameover_screen.visible = false
+		menu_screen.visible = true
+		if bg_music and not bg_music.playing:
+			bg_music.play()
+		_fade_bg_music(-8.0, 1.0)
+	)
+	vb.add_child(menu_btn)
+
+
+# --- Pause Menu ---
+func _build_pause(canvas: CanvasLayer) -> void:
+	pause_screen = Control.new()
+	pause_screen.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	pause_screen.visible = false
+	canvas.add_child(pause_screen)
+
+	var overlay := ColorRect.new()
+	overlay.color = Color(0, 0, 0.05, 0.65) # Dark overlay with blur-like backdrop
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pause_screen.add_child(overlay)
+
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", _glass_panel(18.0, 0.88))
+	card.set_anchor(SIDE_LEFT, 0.5);  card.set_anchor(SIDE_RIGHT, 0.5)
+	card.set_anchor(SIDE_TOP, 0.5);   card.set_anchor(SIDE_BOTTOM, 0.5)
+	card.offset_left = -230; card.offset_right  = 230
+	card.offset_top  = -180; card.offset_bottom = 180
+	pause_screen.add_child(card)
+
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 16)
+	vb.alignment = BoxContainer.ALIGNMENT_CENTER
+	card.add_child(vb)
+
+	var title := Label.new(); title.text = "GAME PAUSED"
+	title.add_theme_font_size_override("font_size", 24)
+	title.add_theme_color_override("font_color", Color(0.60, 0.80, 1.0))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(title)
+
+	# Stats container
+	var stats_hb := HBoxContainer.new()
+	stats_hb.alignment = BoxContainer.ALIGNMENT_CENTER
+	stats_hb.add_theme_constant_override("separation", 20)
+	vb.add_child(stats_hb)
+
+	var sc_lbl := Label.new(); sc_lbl.text = "Score:"
+	sc_lbl.add_theme_font_size_override("font_size", 13)
+	sc_lbl.add_theme_color_override("font_color", Color(0.7, 0.8, 1.0, 0.8))
+	stats_hb.add_child(sc_lbl)
+	
+	var sc_val := Label.new(); sc_val.name = "PauseScoreVal"; sc_val.text = "0"
+	sc_val.add_theme_font_size_override("font_size", 14)
+	sc_val.add_theme_color_override("font_color", Color.WHITE)
+	stats_hb.add_child(sc_val)
+
+	var tm_lbl := Label.new(); tm_lbl.text = "  Time:"
+	tm_lbl.add_theme_font_size_override("font_size", 13)
+	tm_lbl.add_theme_color_override("font_color", Color(0.7, 0.8, 1.0, 0.8))
+	stats_hb.add_child(tm_lbl)
+
+	var tm_val := Label.new(); tm_val.name = "PauseTimeVal"; tm_val.text = "00:00"
+	tm_val.add_theme_font_size_override("font_size", 14)
+	tm_val.add_theme_color_override("font_color", Color.WHITE)
+	stats_hb.add_child(tm_val)
+
+	# Buttons
+	var resume_btn := _menu_btn("RESUME", Color(0.12, 0.47, 1.0))
+	resume_btn.pressed.connect(_resume_game)
+	vb.add_child(resume_btn)
+
+	var restart_btn := _menu_btn("RESTART", Color(0.24, 0.26, 0.35))
+	restart_btn.pressed.connect(func():
+		_resume_game()
+		_start_game()
+	)
+	vb.add_child(restart_btn)
+
+	var menu_btn := _menu_btn("MAIN MENU", Color(0.24, 0.26, 0.35))
+	menu_btn.pressed.connect(func():
+		_resume_game()
+		_fade_bg_music(-8.0, 1.0)
+		game_mode = Mode.MENU
+		game_hud.visible = false
+		gameover_screen.visible = false
+		menu_screen.visible = true
+	)
+	vb.add_child(menu_btn)
 
 func _menu_btn(txt: String, col: Color) -> Button:
 	var b := Button.new(); b.text = txt
@@ -863,12 +1054,21 @@ func _input(event: InputEvent) -> void:
 			KEY_S, KEY_DOWN:
 				if pressed and not iek.is_echo():
 					_vent_down()
+			KEY_ESCAPE, KEY_BACK:
+				if pressed and not iek.is_echo():
+					if game_mode == Mode.PLAYING:
+						_pause_game()
+					elif game_mode == Mode.PAUSED:
+						_resume_game()
 
 
 # =================================================================
 # Game Logic
 # =================================================================
 func _start_game() -> void:
+	if bg_music and not bg_music.playing:
+		bg_music.play()
+	_fade_bg_music(-22.0, 1.0)
 	game_mode      = Mode.PLAYING
 	air_pressure   = 100.0 # Active fuel starts at 100%
 	balloon_heat   = 50.0  # Heat starts at 50%
@@ -893,16 +1093,42 @@ func _start_game() -> void:
 
 	menu_screen.visible     = false
 	gameover_screen.visible = false
+	if pause_screen: pause_screen.visible = false
 	game_hud.visible        = true
 
 func _game_over(reason: String) -> void:
+	if bg_music:
+		bg_music.stop()
+	if lose_sfx_player:
+		lose_sfx_player.play()
 	game_mode               = Mode.GAME_OVER
 	game_hud.visible        = false
+	if pause_screen: pause_screen.visible = false
 	gameover_screen.visible = true
 	gameover_reason_label.text = reason
 	res_score_label.text    = str(int(score))
 	res_time_label.text     = str(int(survival_time)) + "s"
 	res_pumps_label.text    = str(pumps_collected)
+
+func _pause_game() -> void:
+	if game_mode != Mode.PLAYING: return
+	game_mode = Mode.PAUSED
+	if pause_screen:
+		pause_screen.visible = true
+		# Update current stats in pause overlay
+		var score_val := pause_screen.find_child("PauseScoreVal", true, false) as Label
+		var time_val  := pause_screen.find_child("PauseTimeVal", true, false) as Label
+		if score_val: score_val.text = str(int(score))
+		if time_val:
+			var mins := str(int(survival_time) / 60).pad_zeros(2)
+			var secs := str(int(survival_time) % 60).pad_zeros(2)
+			time_val.text  = mins + ":" + secs
+
+func _resume_game() -> void:
+	if game_mode != Mode.PAUSED: return
+	game_mode = Mode.PLAYING
+	if pause_screen:
+		pause_screen.visible = false
 
 func _pump_up() -> void:
 	if game_mode != Mode.PLAYING: return
@@ -930,6 +1156,8 @@ func _vent_down() -> void:
 # _process — Main Game Loop
 # =================================================================
 func _process(delta: float) -> void:
+	if game_mode == Mode.PAUSED: return
+	
 	elapsed += delta
 	var fly_speed := (16.0 + survival_time * 0.45) * delta
 
@@ -1063,8 +1291,10 @@ func _update_playing(delta: float, fly_speed: float) -> void:
 			air_pressure = minf(100.0, air_pressure + 25.0)
 			score        += 150.0
 			pumps_collected += 1
+			if fuel_sfx_player:
+				fuel_sfx_player.play()
 			_spawn_burst(pump.position, Color(0.204, 0.827, 0.6))
-			_spawn_popup("+25% FUEL! ⛽", Color(0.2, 1.0, 0.6))
+			_spawn_popup("+25% FUEL!", Color(0.2, 1.0, 0.6))
 			_reset_pump(pump)
 		elif pump.position.z > 6.0:
 			_reset_pump(pump)
@@ -1078,8 +1308,10 @@ func _update_playing(delta: float, fly_speed: float) -> void:
 			air_pressure = maxf(0.0, air_pressure - 30.0)   # Lose 30% active fuel
 			balloon_heat = maxf(20.0, balloon_heat - 40.0)   # Envelope damage
 			spring_vel_y = -0.55 # violent wobble on impact
+			if hit_sfx_player:
+				hit_sfx_player.play()
 			_spawn_burst(spike.position, Color(0.937, 0.267, 0.267))
-			_spawn_popup("-30% FUEL! ⚠️", Color(1.0, 0.3, 0.3))
+			_spawn_popup("-30% FUEL!", Color(1.0, 0.3, 0.3))
 			_trigger_hit_flash()
 			camera_shake_intensity = 0.75 # Trigger physical camera shake
 			_reset_spike(spike)
